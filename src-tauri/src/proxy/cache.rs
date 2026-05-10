@@ -63,9 +63,11 @@ impl PackageCache {
 
         let path = self.cache_dir.join(&file_name);
         if !path.exists() {
-            if let Err(e) = std::fs::write(&path, data) {
-                eprintln!("DEBUG store write error: {:?} path={:?}", e, path);
+            // Ensure parent directory exists before writing
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
             }
+            let _ = std::fs::write(&path, data);
         }
 
         let pkg = CachedPackage {
@@ -99,6 +101,11 @@ impl PackageCache {
 mod tests {
     use super::*;
 
+    fn temp_cache() -> PackageCache {
+        let dir = std::env::temp_dir().join(format!("aidev-proxy-test-{}", uuid::Uuid::new_v4()));
+        PackageCache::with_dir(dir)
+    }
+
     #[test]
     fn test_compute_hash_is_deterministic() {
         let data = b"hello world";
@@ -117,35 +124,26 @@ mod tests {
 
     #[test]
     fn test_store_and_get() {
-        let cache = PackageCache::new();
-        eprintln!("DEBUG cache_dir: {:?}", cache.cache_dir);
-        eprintln!("DEBUG cache_dir exists: {}", cache.cache_dir.exists());
+        let cache = temp_cache();
         let data = b"cached content";
         let hash = cache.store(data, "https://example.com/package.tar.gz");
-        eprintln!("DEBUG hash: {}", hash);
-        eprintln!("DEBUG file_name: {}.pkg", &hash[..16]);
-        eprintln!("DEBUG full_path: {:?}", cache.cache_dir.join(format!("{}.pkg", &hash[..16])));
-        eprintln!("DEBUG full_path exists: {}", cache.cache_dir.join(format!("{}.pkg", &hash[..16])).exists());
 
         assert!(!hash.is_empty());
-        let index_has = cache.index.read().contains_key(&hash);
-        eprintln!("DEBUG index contains hash: {}", index_has);
         let retrieved = cache.get(&hash);
-        eprintln!("DEBUG retrieved.is_some(): {}", retrieved.is_some());
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap(), data);
     }
 
     #[test]
     fn test_get_nonexistent_hash() {
-        let cache = PackageCache::new();
+        let cache = temp_cache();
         let result = cache.get("nonexistent_hash");
         assert!(result.is_none());
     }
 
     #[test]
     fn test_get_size_bytes() {
-        let cache = PackageCache::new();
+        let cache = temp_cache();
         assert_eq!(cache.get_size_bytes(), 0);
 
         cache.store(b"1234567890", "url1"); // 10 bytes
@@ -155,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let cache = PackageCache::new();
+        let cache = temp_cache();
         let hash = cache.store(b"some data", "url");
         assert!(cache.get(&hash).is_some());
         assert!(cache.get_size_bytes() > 0);
