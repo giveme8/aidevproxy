@@ -1,0 +1,41 @@
+[package]
+name = "aidev-proxy"
+version = "0.1.0"
+description = "AI Dev Proxy - Zero-config acceleration proxy for AI development"
+authors = ["AIDevProxy"]
+edition = "2021"
+
+[lib]
+name = "aidev_proxy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+bytes = "1"
+futures = "0.3"
+url = "2"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+base64 = "0.22"
+log = "0.4"
+env_logger = "0.11"
+parking_lot = "0.12"
+uuid = { version = "1", features = ["v4"] }
+once_cell = "1"
+thiserror = "1"
+libp2p = { version = "0.54", features = ["tokio", "mdns", "kad", "noise", "yamux", "tcp", "identify", "gossipsub", "macros"] }
+libp2p-swarm-derive = "0.35"
+tokio-util = { version = "0.7", features = ["codec"] }
+rand = "0.8"
+dirs = "5"
