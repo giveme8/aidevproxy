@@ -32,6 +32,15 @@ impl PackageCache {
         }
     }
 
+    #[cfg(test)]
+    pub fn with_dir(cache_dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&cache_dir).ok();
+        Self {
+            cache_dir,
+            index: RwLock::new(HashMap::new()),
+        }
+    }
+
     pub fn compute_hash(data: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(data);
@@ -54,7 +63,9 @@ impl PackageCache {
 
         let path = self.cache_dir.join(&file_name);
         if !path.exists() {
-            std::fs::write(&path, data).ok();
+            if let Err(e) = std::fs::write(&path, data) {
+                eprintln!("DEBUG store write error: {:?} path={:?}", e, path);
+            }
         }
 
         let pkg = CachedPackage {
@@ -107,11 +118,20 @@ mod tests {
     #[test]
     fn test_store_and_get() {
         let cache = PackageCache::new();
+        eprintln!("DEBUG cache_dir: {:?}", cache.cache_dir);
+        eprintln!("DEBUG cache_dir exists: {}", cache.cache_dir.exists());
         let data = b"cached content";
         let hash = cache.store(data, "https://example.com/package.tar.gz");
+        eprintln!("DEBUG hash: {}", hash);
+        eprintln!("DEBUG file_name: {}.pkg", &hash[..16]);
+        eprintln!("DEBUG full_path: {:?}", cache.cache_dir.join(format!("{}.pkg", &hash[..16])));
+        eprintln!("DEBUG full_path exists: {}", cache.cache_dir.join(format!("{}.pkg", &hash[..16])).exists());
 
         assert!(!hash.is_empty());
+        let index_has = cache.index.read().contains_key(&hash);
+        eprintln!("DEBUG index contains hash: {}", index_has);
         let retrieved = cache.get(&hash);
+        eprintln!("DEBUG retrieved.is_some(): {}", retrieved.is_some());
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap(), data);
     }
