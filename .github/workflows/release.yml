@@ -43,16 +43,20 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
             librsvg2-dev \
             patchelf \
             libssl-dev \
             libgtk-3-dev \
-            libayatana-appindicator3-dev \
             libjavascriptcoregtk-4.1-dev \
-            libsoup-3.0-dev
+            libsoup-3.0-dev \
+            libayatana-appindicator3-dev
+
+      - name: Install Rust cross-compilation target (macOS universal)
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
 
       - name: Install frontend dependencies
         run: npm ci
