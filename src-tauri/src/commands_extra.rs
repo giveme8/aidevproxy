@@ -17,24 +17,10 @@ use tauri::State;
 
 /* ── data types ─────────────────────────────────────────────────────────── */
 
-// Re-export Mirror from db module (persisted to SQLite).
+// Re-export Mirror, Rule, and Settings from db module (persisted to SQLite).
 pub use crate::db::Mirror;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Rule {
-    pub id: String,
-    pub name: String,
-    pub pattern: String,
-    pub action: String,
-    pub priority: u32,
-    pub enabled: bool,
-    #[serde(default)]
-    pub hits: u64,
-    #[serde(default = "default_action_color")]
-    pub action_color: String,
-}
-
-fn default_action_color() -> String { "blue".into() }
+pub use crate::db::Rule;
+pub use crate::db::Settings;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInfo {
@@ -135,95 +121,6 @@ pub struct Peer {
     pub last_seen: String,
 }
 
-/// Extended settings struct, persisted in memory.
-/// Mirrors the `Settings` interface in `src/pages/SettingsPage.tsx`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Settings {
-    pub port: String,
-    pub startup: bool,
-    pub sys_proxy: bool,
-    pub theme: String,
-    pub lang: String,
-    pub min_tray: bool,
-    pub tray_action: String,
-    pub cache_dir: String,
-    pub cache_max: u32,
-    pub auto_clean: bool,
-    pub clean_policy: String,
-    pub keep_days: String,
-    pub low_disk: String,
-    pub p2p: bool,
-    pub lan_discovery: bool,
-    pub device_name: String,
-    pub same_subnet: bool,
-    pub max_conn: String,
-    pub up_limit: String,
-    pub up_unit: String,
-    pub down_limit: String,
-    pub down_unit: String,
-    pub sha256: bool,
-    pub cert_verify: String,
-    pub allow_insecure: bool,
-    pub log_desensitize: bool,
-    pub desens_level: String,
-    pub acl: String,
-    pub allowed_ips: String,
-    pub concurrent: String,
-    pub idle_timeout: String,
-    pub dns: String,
-    pub tcp_opt: String,
-    pub udp_relay: bool,
-    pub ipv6: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            port: "8899".into(),
-            startup: false,
-            sys_proxy: false,
-            theme: "深色".into(),
-            lang: "简体中文".into(),
-            min_tray: false,
-            tray_action: "显示主窗口".into(),
-            cache_dir: CacheConfig::default().cache_dir,
-            cache_max: 50,
-            auto_clean: true,
-            clean_policy: "LRU (最近最少使用)".into(),
-            keep_days: "7".into(),
-            low_disk: "可用空间小于 10GB".into(),
-            p2p: true,
-            lan_discovery: true,
-            device_name: hostname_or_default(),
-            same_subnet: true,
-            max_conn: "200".into(),
-            up_limit: "0".into(),
-            up_unit: "MB/s".into(),
-            down_limit: "0".into(),
-            down_unit: "MB/s".into(),
-            sha256: true,
-            cert_verify: "严格校验".into(),
-            allow_insecure: false,
-            log_desensitize: true,
-            desens_level: "标准".into(),
-            acl: "白名单模式".into(),
-            allowed_ips: "".into(),
-            concurrent: "1024".into(),
-            idle_timeout: "60".into(),
-            dns: "系统 DNS".into(),
-            tcp_opt: "启用".into(),
-            udp_relay: true,
-            ipv6: false,
-        }
-    }
-}
-
-fn hostname_or_default() -> String {
-    std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_else(|_| "this-device".into())
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeedTestResult {
     pub download_mbps: f64,
@@ -240,16 +137,13 @@ pub struct ScanResult {
 
 /* ── stores ─────────────────────────────────────────────────────────────── */
 
-// MIRRORS moved to SQLite (crate::db)
-static RULES: Lazy<Mutex<Vec<Rule>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static NODES: Lazy<Mutex<Vec<NodeInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static CACHE_ENTRIES: Lazy<Mutex<Vec<CacheEntry>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static CACHE_CFG: Lazy<Mutex<CacheConfig>> = Lazy::new(|| Mutex::new(CacheConfig::default()));
-static TRAFFIC_LOGS: Lazy<Mutex<Vec<TrafficLogEntry>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static RECENT_REQS: Lazy<Mutex<Vec<RecentRequest>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static MIRROR_LATENCY: Lazy<Mutex<Vec<MirrorLatencySample>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static PEERS: Lazy<Mutex<Vec<Peer>>> = Lazy::new(|| Mutex::new(Vec::new()));
-static SETTINGS: Lazy<Mutex<Settings>> = Lazy::new(|| Mutex::new(Settings::default()));
+// MIRRORS and RULES moved to SQLite (crate::db)
+pub(crate) static NODES: Lazy<Mutex<Vec<NodeInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
+pub(crate) static CACHE_ENTRIES: Lazy<Mutex<Vec<CacheEntry>>> = Lazy::new(|| Mutex::new(Vec::new()));
+pub(crate) static CACHE_CFG: Lazy<Mutex<CacheConfig>> = Lazy::new(|| Mutex::new(CacheConfig::default()));
+pub(crate) static RECENT_REQS: Lazy<Mutex<Vec<RecentRequest>>> = Lazy::new(|| Mutex::new(Vec::new()));
+pub(crate) static MIRROR_LATENCY: Lazy<Mutex<Vec<MirrorLatencySample>>> = Lazy::new(|| Mutex::new(Vec::new()));
+pub(crate) static PEERS: Lazy<Mutex<Vec<Peer>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 /* ── traffic / dashboard ────────────────────────────────────────────────── */
 
@@ -286,8 +180,17 @@ pub async fn get_mirror_latency(pool: State<'_, SqlitePool>) -> Result<Vec<Mirro
 }
 
 #[tauri::command]
-pub async fn get_traffic_logs() -> Result<Vec<TrafficLogEntry>, String> {
-    Ok(TRAFFIC_LOGS.lock().clone())
+pub async fn get_traffic_logs(time_range: Option<String>) -> Result<Vec<TrafficLogEntry>, String> {
+    let hours = time_range
+        .as_deref()
+        .map(|s| match s {
+            "近1小时" => 1,
+            "近24小时" => 24,
+            "近7天" => 168,
+            _ => 0,
+        })
+        .unwrap_or(0);
+    crate::traffic::get_logs(hours, 500, 0).await
 }
 
 /* ── cache ──────────────────────────────────────────────────────────────── */
@@ -528,8 +431,8 @@ pub async fn probe_mirrors(
 /* ── rules ──────────────────────────────────────────────────────────────── */
 
 #[tauri::command]
-pub async fn get_rules() -> Result<Vec<Rule>, String> {
-    Ok(RULES.lock().clone())
+pub async fn get_rules(pool: State<'_, SqlitePool>) -> Result<Vec<Rule>, String> {
+    db::list_rules(&pool).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -546,7 +449,7 @@ pub struct AddRuleArgs {
 }
 
 #[tauri::command]
-pub async fn add_rule(args: AddRuleArgs) -> Result<String, String> {
+pub async fn add_rule(pool: State<'_, SqlitePool>, args: AddRuleArgs) -> Result<String, String> {
     let id = format!("r{}", uuid::Uuid::new_v4().simple());
     let r = Rule {
         id: id.clone(),
@@ -558,7 +461,8 @@ pub async fn add_rule(args: AddRuleArgs) -> Result<String, String> {
         hits: 0,
         action_color: args.action_color.unwrap_or_else(|| "blue".into()),
     };
-    RULES.lock().push(r);
+    db::insert_rule(&pool, &r).await?;
+    crate::refresh_rules_cache(&pool).await;
     Ok(id)
 }
 
@@ -580,77 +484,89 @@ pub struct UpdateRuleArgs {
 }
 
 #[tauri::command]
-pub async fn update_rule(args: UpdateRuleArgs) -> Result<String, String> {
-    let mut v = RULES.lock();
-    let r = v
-        .iter_mut()
-        .find(|r| r.id == args.id)
-        .ok_or_else(|| format!("Rule {} not found", args.id))?;
-    if let Some(x) = args.name { r.name = x; }
-    if let Some(x) = args.pattern { r.pattern = x; }
-    if let Some(x) = args.action { r.action = x; }
-    if let Some(x) = args.priority { r.priority = x; }
-    if let Some(x) = args.enabled { r.enabled = x; }
-    if let Some(x) = args.action_color { r.action_color = x; }
+pub async fn update_rule(pool: State<'_, SqlitePool>, args: UpdateRuleArgs) -> Result<String, String> {
+    db::update_rule_fields(
+        &pool,
+        &args.id,
+        args.name.as_deref(),
+        args.pattern.as_deref(),
+        args.action.as_deref(),
+        args.priority,
+        args.enabled,
+        args.action_color.as_deref(),
+    ).await?;
+    crate::refresh_rules_cache(&pool).await;
     Ok("Rule updated".into())
 }
 
 #[tauri::command]
-pub async fn remove_rule(id: String) -> Result<String, String> {
-    let mut v = RULES.lock();
-    let before = v.len();
-    v.retain(|r| r.id != id);
-    if v.len() == before {
+pub async fn remove_rule(pool: State<'_, SqlitePool>, id: String) -> Result<String, String> {
+    let removed = db::delete_rule(&pool, &id).await?;
+    if !removed {
         return Err(format!("Rule {} not found", id));
     }
+    crate::refresh_rules_cache(&pool).await;
     Ok(format!("Rule {} removed", id))
 }
 
 #[tauri::command]
-pub async fn toggle_rule(id: String) -> Result<String, String> {
-    let mut v = RULES.lock();
-    let r = v
-        .iter_mut()
-        .find(|r| r.id == id)
+pub async fn toggle_rule(pool: State<'_, SqlitePool>, id: String) -> Result<String, String> {
+    // Read current state, flip, write back.
+    let rules = db::list_rules(&pool).await?;
+    let r = rules.iter().find(|r| r.id == id)
         .ok_or_else(|| format!("Rule {} not found", id))?;
-    r.enabled = !r.enabled;
+    db::set_rule_enabled(&pool, &id, !r.enabled).await?;
+    crate::refresh_rules_cache(&pool).await;
     Ok(format!("Rule {} toggled", id))
 }
 
 #[tauri::command]
-pub async fn reorder_rules(ids: Vec<String>) -> Result<String, String> {
-    let mut v = RULES.lock();
-    // Reassign priorities to match the supplied order; entries not in `ids`
-    // keep their existing priority but shift behind the explicitly-ordered set.
-    for (idx, id) in ids.iter().enumerate() {
-        if let Some(r) = v.iter_mut().find(|r| r.id == *id) {
-            r.priority = (idx as u32) + 1;
-        }
-    }
+pub async fn reorder_rules(pool: State<'_, SqlitePool>, ids: Vec<String>) -> Result<String, String> {
+    db::reorder_rules(&pool, &ids).await?;
+    crate::refresh_rules_cache(&pool).await;
     Ok("Rules reordered".into())
 }
 
 /* ── settings ───────────────────────────────────────────────────────────── */
 
 #[tauri::command]
-pub async fn get_settings() -> Result<Settings, String> {
-    Ok(SETTINGS.lock().clone())
+pub async fn get_settings(pool: State<'_, SqlitePool>) -> Result<Settings, String> {
+    db::get_settings(&pool).await
 }
 
 #[tauri::command]
-pub async fn save_settings(settings: Settings) -> Result<String, String> {
+pub async fn save_settings(pool: State<'_, SqlitePool>, settings: Settings) -> Result<String, String> {
     // Keep proxy port in sync if it changed.
     if let Ok(p) = settings.port.parse::<u16>() {
         *APP_STATE.proxy_port.write() = p;
     }
-    *SETTINGS.lock() = settings;
+    // Keep CONFIG switches in sync with settings.
+    {
+        let mut cfg = crate::commands::CONFIG.lock();
+        cfg.enable_mirror = settings.mirror_enabled;
+        cfg.enable_cache = settings.cache_enabled;
+        cfg.enable_p2p = settings.p2p;
+        cfg.auto_start = settings.startup;
+    }
+    db::save_settings(&pool, &settings).await?;
     Ok("Settings saved".into())
 }
 
 #[tauri::command]
-pub async fn reset_settings() -> Result<String, String> {
-    *SETTINGS.lock() = Settings::default();
+pub async fn reset_settings(pool: State<'_, SqlitePool>) -> Result<String, String> {
+    db::reset_settings(&pool).await?;
     Ok("Settings reset to defaults".into())
+}
+
+/* ── stats persistence ──────────────────────────────────────────────────── */
+
+/// Persist the current in-memory cumulative stats to SQLite.
+/// Should be called periodically and on shutdown.
+#[tauri::command]
+pub async fn flush_stats(pool: State<'_, SqlitePool>) -> Result<String, String> {
+    let persisted = APP_STATE.stats.read().to_persisted();
+    db::save_persisted_stats(&pool, &persisted).await?;
+    Ok("Stats flushed".into())
 }
 
 /* ── misc ───────────────────────────────────────────────────────────────── */

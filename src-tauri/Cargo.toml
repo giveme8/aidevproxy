@@ -41,3 +41,4 @@ tokio-util = { version = "0.7", features = ["codec"] }
 rand = "0.8"
 dirs = "5"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

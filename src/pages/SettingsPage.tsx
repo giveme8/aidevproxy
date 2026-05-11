@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Select from "../components/ui/Select";
@@ -138,7 +138,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [tab, setTab] = useState<Tab>("general");
   const [toast, setToast] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const mountedRef = useRef(false);
+  const settingsRef = useRef(settings); // keep latest for unmount save
   const [services, setServices] = useState<ServiceStatus>({
     proxy: false,
     p2p: false,
@@ -152,6 +153,18 @@ export default function SettingsPage() {
   }, []);
 
   const set = (k: keyof Settings, v: string | boolean) => setSettings((s) => ({ ...s, [k]: v }));
+
+  // Keep ref in sync for unmount save
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  // Flush unsaved settings on unmount (guard against debounce cancellation)
+  useEffect(() => {
+    return () => {
+      invoke("save_settings", settingsRef.current as unknown as Record<string, unknown>).catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -188,21 +201,27 @@ export default function SettingsPage() {
     return () => clearInterval(id);
   }, [refreshServices]);
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await invoke("save_settings", { settings });
-      showToast("设置已保存");
-    } catch {
-      showToast("保存失败");
+  // Auto-save settings on change (debounced 500ms, skip initial mount).
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
     }
-    setSaving(false);
-  };
+    const timer = setTimeout(async () => {
+      try {
+        await invoke("save_settings", settings as unknown as Record<string, unknown>);
+      } catch {
+        // silent — next change will retry
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [settings]);
 
   const handleReset = async () => {
     try {
       await invoke("reset_settings");
-      setSettings(defaultSettings);
+      const s = await invoke<Settings>("get_settings");
+      setSettings(s);
       showToast("设置已恢复默认");
     } catch {
       showToast("重置失败");
@@ -315,8 +334,6 @@ export default function SettingsPage() {
         {content}
         <div className="flex gap-2 justify-end mt-5">
           <Button variant="danger" icon={<IconReset size={14} />} onClick={handleReset}>重置配置</Button>
-          <Button variant="ghost" onClick={() => showToast("已取消")}>取消</Button>
-          <Button variant="primary" onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "保存设置"}</Button>
         </div>
       </div>
 

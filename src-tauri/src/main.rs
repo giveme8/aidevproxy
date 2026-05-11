@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use aidev_proxy_lib::{commands, commands_extra as cx, db, health_check, APP_STATE};
+use aidev_proxy_lib::{commands, commands_extra as cx, db, health_check, http_server, traffic, APP_STATE};
 use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
@@ -42,8 +42,6 @@ fn main() {
         )
         .setup(|app| {
             let app_data_dir = if cfg!(debug_assertions) {
-                // macOS sandbox in dev mode prevents writes to ~/Library.
-                // Use the project directory instead.
                 std::env::current_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
                     .join(".aidevproxy-data")
@@ -53,7 +51,36 @@ fn main() {
             };
             let pool = tauri::async_runtime::block_on(db::init_pool(&app_data_dir))
                 .expect("Failed to initialize SQLite database");
+
+            // Load persisted stats into the in-memory APP_STATE.
+            match tauri::async_runtime::block_on(db::get_persisted_stats(&pool)) {
+                Ok(ps) => {
+                    APP_STATE.stats.write().load_persisted(&ps);
+                }
+                Err(e) => {
+                    log::warn!("Failed to load persisted stats: {}", e);
+                }
+            }
+
             health_check::spawn_scheduler(pool.clone());
+
+            // Initialize traffic recorder (buffered SQLite writes + cleanup).
+            traffic::set_pool(pool.clone());
+            traffic::start_background_tasks();
+
+            // Start the HTTP API server for browser dev mode.
+            // Port can be overridden via HTTP_API_PORT env var (default 3001).
+            let http_port: u16 = std::env::var("HTTP_API_PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3001);
+            http_server::set_db_pool(pool.clone());
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = http_server::start(http_port).await {
+                    log::error!("HTTP API server failed: {}", e);
+                }
+            });
+
             app.manage(pool);
             Ok(())
         })
@@ -105,6 +132,7 @@ fn main() {
             cx::get_settings,
             cx::save_settings,
             cx::reset_settings,
+            cx::flush_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

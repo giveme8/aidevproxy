@@ -1,3 +1,4 @@
+use std::time::Instant;
 use std::net::SocketAddr;
 
 use tokio::net::TcpListener;
@@ -111,6 +112,7 @@ async fn handle_http(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use tokio::io::AsyncWriteExt;
 
+    let start = Instant::now();
     // Parse the request to determine target
     let first_line = request_str.lines().next().unwrap_or("");
     let parts: Vec<&str> = first_line.split_whitespace().collect();
@@ -122,28 +124,128 @@ async fn handle_http(
     let url_str = parts[1];
     let intercepted = intercept_request(url_str);
 
+    let (_resolved_url, mode, source) = match &intercepted {
+        InterceptedRequest::Mirror { url } => {
+            (url.clone(), "Mirrored".to_string(), url.clone())
+        }
+        InterceptedRequest::P2P { .. } => {
+            (url_str.to_string(), "P2P".to_string(), url_str.to_string())
+        }
+        InterceptedRequest::Direct => {
+            (url_str.to_string(), "Direct".to_string(), url_str.to_string())
+        }
+    };
+
+    let response_size: usize;
+    let status: u32;
+
     match intercepted {
         InterceptedRequest::Mirror { url: mirror_url } => {
-            // Fetch from mirror
-            let response = fetch_from_url(&mirror_url).await?;
-            stream.write_all(&response).await?;
+            match fetch_from_url(&mirror_url).await {
+                Ok(response) => {
+                    response_size = response.len();
+                    status = 200;
+                    stream.write_all(&response).await?;
+                }
+                Err(_) => {
+                    status = 502;
+                    response_size = 0;
+                }
+            }
         }
         InterceptedRequest::P2P { hash } => {
-            // Try P2P first, fallback to direct
             if let Some(data) = try_p2p_fetch(&hash).await {
+                response_size = data.len();
+                status = 200;
                 stream.write_all(&data).await?;
             } else {
-                let response = fetch_from_url(url_str).await?;
-                stream.write_all(&response).await?;
+                match fetch_from_url(url_str).await {
+                    Ok(response) => {
+                        response_size = response.len();
+                        status = 200;
+                        stream.write_all(&response).await?;
+                    }
+                    Err(_) => {
+                        status = 502;
+                        response_size = 0;
+                    }
+                }
             }
         }
         InterceptedRequest::Direct => {
-            let response = fetch_from_url(url_str).await?;
-            stream.write_all(&response).await?;
+            match fetch_from_url(url_str).await {
+                Ok(response) => {
+                    response_size = response.len();
+                    status = 200;
+                    stream.write_all(&response).await?;
+                }
+                Err(_) => {
+                    status = 502;
+                    response_size = 0;
+                }
+            }
         }
     }
 
+    let elapsed = start.elapsed().as_millis() as u32;
+
+    // Determine tool from host
+    let host = get_host(url_str);
+    let tool = classify_tool(&host);
+
+    crate::traffic::record(crate::traffic::TrafficEntry {
+        time: chrono::Local::now().format("%H:%M:%S").to_string(),
+        tool,
+        host,
+        path: get_path(url_str),
+        mode,
+        source,
+        size: format_bytes(response_size),
+        latency: elapsed,
+        status,
+    });
+
     Ok(())
+}
+
+fn get_host(url_str: &str) -> String {
+    url::Url::parse(url_str)
+        .ok()
+        .and_then(|u| u.host_str().map(String::from))
+        .unwrap_or_else(|| url_str.to_string())
+}
+
+fn get_path(url_str: &str) -> String {
+    url::Url::parse(url_str)
+        .ok()
+        .map(|u| u.path().to_string())
+        .unwrap_or_else(|| "/".into())
+}
+
+fn classify_tool(host: &str) -> String {
+    if host.contains("pypi.org") || host.contains("pythonhosted.org") {
+        "pip".into()
+    } else if host.contains("npmjs.org") || host.contains("npmmirror.com") {
+        "npm".into()
+    } else if host.contains("huggingface.co") || host.contains("hf-mirror.com") {
+        "huggingface".into()
+    } else if host.contains("docker.io") || host.contains("docker.") {
+        "docker".into()
+    } else if host.contains("anaconda.") || host.contains("conda.") {
+        "conda".into()
+    } else {
+        "other".into()
+    }
+}
+
+fn format_bytes(bytes: usize) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 async fn handle_connect(

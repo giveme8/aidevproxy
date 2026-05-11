@@ -33,6 +33,7 @@ fn parse_interval(s: &str) -> Duration {
 pub async fn probe(url: &str) -> (u32, bool, &'static str) {
     let client = match reqwest::Client::builder()
         .timeout(PROBE_TIMEOUT)
+        .user_agent("AIDevProxy/0.1 (mirror-health-check)")
         .build()
     {
         Ok(c) => c,
@@ -47,11 +48,18 @@ pub async fn probe(url: &str) -> (u32, bool, &'static str) {
             if status.is_success() || status.is_redirection() {
                 (ms, true, "正常")
             } else {
+                log::warn!("health_check: {} returned HTTP {}", url, status.as_u16());
                 (ms, false, "异常")
             }
         }
-        Err(e) if e.is_timeout() => (0, false, "超时"),
-        Err(_) => (0, false, "不可用"),
+        Err(e) if e.is_timeout() => {
+            log::warn!("health_check: {} timed out after {:?}", url, PROBE_TIMEOUT);
+            (0, false, "异常")
+        }
+        Err(e) => {
+            log::warn!("health_check: {} unreachable: {}", url, e);
+            (0, false, "异常")
+        }
     }
 }
 

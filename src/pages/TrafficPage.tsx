@@ -74,12 +74,12 @@ export default function TrafficPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const data = await invoke<TrafficRow[]>("get_traffic_logs");
+      const data = await invoke<TrafficRow[]>("get_traffic_logs", { timeRange });
       setRows(data);
     } catch {
       // keep current state
     }
-  }, []);
+  }, [timeRange]);
 
   useEffect(() => {
     fetchData();

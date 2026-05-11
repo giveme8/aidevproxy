@@ -9,6 +9,80 @@ pub enum InterceptedRequest {
     Direct,
 }
 
+/// Check whether the given `action` string indicates mirror behaviour.
+fn action_is_mirror(a: &str) -> bool {
+    matches!(
+        a.to_lowercase().as_str(),
+        "mirror" | "镜像" | "镜像加速"
+    )
+}
+
+/// Check whether the given `action` string indicates P2P behaviour.
+fn action_is_p2p(a: &str) -> bool {
+    matches!(
+        a.to_lowercase().as_str(),
+        "p2p" | "peer" | "p2p节点"
+    )
+}
+
+/// Check whether the given `action` string means the request should be dropped / not proxied.
+fn action_is_block(a: &str) -> bool {
+    matches!(
+        a.to_lowercase().as_str(),
+        "block" | "deny" | "drop" | "拦截" | "阻止" | "拒绝"
+    )
+}
+
+/// Evaluate user-defined rules from the in-memory cache.
+///
+/// Returns `Some(InterceptedRequest)` when a matching, enabled rule is found,
+/// or `None` when no user rule matches — the caller should fall back to
+/// hard-coded `KNOWN_HOSTS`.
+fn eval_user_rules(host: &str) -> Option<InterceptedRequest> {
+    let cache = crate::RULES_CACHE.read();
+    if cache.is_empty() {
+        return None;
+    }
+
+    // Rules are already sorted by priority in the cache.
+    for rule in cache.iter() {
+        if !rule.enabled {
+            continue;
+        }
+        // Simple host matching: exact or subdomain.
+        if host != rule.pattern && !host.ends_with(&format!(".{}", rule.pattern)) {
+            continue;
+        }
+
+        let action_lower = rule.action.to_lowercase();
+
+        if action_is_block(&action_lower) {
+            // Blocked — we signal this by returning a special value.
+            // For now, return Mirror with empty URL; the caller can interpret this.
+            // TODO: add a Block variant to InterceptedRequest.
+            return Some(InterceptedRequest::Direct);
+        }
+
+        if action_is_mirror(&action_lower) {
+            // Fall through to KNOWN_HOSTS for the actual mirror URL.
+            // The user rule just says "yes, intercept this host".
+            return None;
+        }
+
+        if action_is_p2p(&action_lower) {
+            // P2P with empty hash — try_p2p_fetch will fail, falling back to direct.
+            return Some(InterceptedRequest::P2P {
+                hash: String::new(),
+            });
+        }
+
+        // Any other action (proxy, fallback, direct, etc.) → Direct
+        return Some(InterceptedRequest::Direct);
+    }
+
+    None
+}
+
 /// Known AI package hosts that should be intercepted
 const KNOWN_HOSTS: &[(&str, &[(&str, &str)])] = &[
     // pip / PyPI
@@ -61,6 +135,12 @@ pub fn intercept_request(url_str: &str) -> InterceptedRequest {
 
     let host = url.host_str().unwrap_or("");
 
+    // 1. Check user-defined rules first (highest priority).
+    if let Some(decision) = eval_user_rules(host) {
+        return decision;
+    }
+
+    // 2. Fall back to hard-coded KNOWN_HOSTS for mirror URL resolution.
     for (known_host, routes) in KNOWN_HOSTS {
         if host == *known_host || host.ends_with(&format!(".{}", known_host)) {
             let path = url.path();

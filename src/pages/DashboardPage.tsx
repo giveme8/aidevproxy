@@ -68,6 +68,15 @@ interface MirrorLatency {
 	name: string;
 	latency: number;
 	hitRate: number;
+	healthy: boolean;
+}
+
+interface ProbedMirror {
+	id: string;
+	name: string;
+	latency: number;
+	healthy: boolean;
+	enabled: boolean;
 }
 
 interface SpeedTestResult {
@@ -151,9 +160,9 @@ function KPI(lbl: string, v: string, o?: { u?: string; s?: string; t?: string; s
 
 /* ── main component ───────────────────────────────────── */
 
-interface DashboardPageProps { goTo?: (page: string) => void }
+interface DashboardPageProps { goTo?: (page: string) => void; onProxyToggle?: () => void }
 
-export default function DashboardPage({ goTo: _goTo }: DashboardPageProps) {
+export default function DashboardPage({ goTo: _goTo, onProxyToggle }: DashboardPageProps) {
 	const [status, setStatus] = useState<ProxyStatus | null>(null);
 	const [stats, setStats] = useState<ProxyStats | null>(null);
 	const [p2p, setP2p] = useState<P2PStatus | null>(null);
@@ -163,6 +172,7 @@ export default function DashboardPage({ goTo: _goTo }: DashboardPageProps) {
 	const [filter, setFilter] = useState("all");
 	const [paused, setPaused] = useState(false);
 	const [proxyLoading, setProxyLoading] = useState(false);
+	const [isRefreshingMirrors, setIsRefreshingMirrors] = useState(false);
 	const [toast, setToast] = useState<string | null>(null);
 	const [speedResult, setSpeedResult] = useState<SpeedTestResult | null>(null);
 	const pausedRef = useRef(false);
@@ -182,14 +192,14 @@ export default function DashboardPage({ goTo: _goTo }: DashboardPageProps) {
 				invoke<P2PStatus>("get_p2p_status"),
 				invoke<RequestRow[]>("get_recent_requests"),
 				invoke<Peer[]>("get_peers"),
-				invoke<MirrorLatency[]>("get_mirror_latency"),
+				invoke<{ name: string; latency: number; hit_rate: number }[]>("get_mirror_latency"),
 			]);
 			setStatus(s);
 			setStats(st);
 			setP2p(p);
 			setReqs(r);
 			setPeers(pr);
-			setMirrors(m);
+			setMirrors(m.map((x) => ({ name: x.name, latency: x.latency, hitRate: x.hit_rate, healthy: x.latency > 0 })));
 		} catch {
 			// backend not available, keep last known state
 		}
@@ -200,6 +210,24 @@ export default function DashboardPage({ goTo: _goTo }: DashboardPageProps) {
 		const interval = setInterval(fetchAll, 2000);
 		return () => clearInterval(interval);
 	}, [fetchAll]);
+
+	const fetchMirrors = useCallback(async () => {
+		setIsRefreshingMirrors(true);
+		try {
+			const all = await invoke<ProbedMirror[]>("get_mirrors");
+			const ids = all.filter((m) => m.enabled).map((m) => m.id);
+			if (ids.length === 0) {
+				setMirrors([]);
+				return;
+			}
+			const probed = await invoke<ProbedMirror[]>("probe_mirrors", { ids });
+			setMirrors(probed.map((m) => ({ name: m.name, latency: m.latency, hitRate: 0, healthy: m.healthy })));
+		} catch {
+			// keep last known state
+		} finally {
+			setIsRefreshingMirrors(false);
+		}
+	}, []);
 
 	const handleToggleProxy = async () => {
 		setProxyLoading(true);
@@ -212,6 +240,7 @@ export default function DashboardPage({ goTo: _goTo }: DashboardPageProps) {
 				showToast("代理已启动");
 			}
 			await fetchAll();
+			onProxyToggle?.();
 		} catch {
 			showToast("操作失败，请检查后端服务");
 		}
@@ -395,28 +424,31 @@ export default function DashboardPage({ goTo: _goTo }: DashboardPageProps) {
 				{/* RIGHT */}
 				<div className="flex flex-col gap-4">
 					{/* Mirror latency */}
-					<Card title="镜像延迟" action={<Button variant="ghost" size="sm" icon={<IconRefresh />} onClick={fetchAll} />}>
+					<Card title="镜像延迟" action={<Button variant="ghost" size="sm" icon={<IconRefresh className={isRefreshingMirrors ? "animate-spin" : undefined} />} onClick={fetchMirrors} disabled={isRefreshingMirrors} />}>
 						<div className="flex flex-col">
 							{mirrors.length === 0 ? (
 								<div className="text-[12px] text-content-tertiary text-center p-4">暂无数据</div>
 							) : (
 								mirrors.map((m) => {
-									const health = Math.max(8, Math.min(100, Math.round(100 - (m.latency / 350) * 100)));
+									const timedOut = !m.healthy || m.latency === 0;
+									const barWidth = timedOut ? 0 : Math.max(4, Math.min(100, Math.round(100 - (m.latency / 350) * 100)));
 									const isSlow = m.latency >= 200;
 									const isWarn = m.latency >= 80 && m.latency < 200;
-									const barColor = isSlow ? "#fb923c" : isWarn ? "#facc15" : "#22c55e";
+									const barColor = timedOut ? "#ef4444" : isSlow ? "#fb923c" : isWarn ? "#facc15" : "#22c55e";
 									return (
 										<div key={m.name} className="py-[10px]">
 											<div className="flex items-center justify-between mb-[6px]">
 												<span className="text-[13px] text-content-secondary font-medium">{m.name}</span>
-												<span className="text-[12px] font-semibold text-content-primary font-mono">{m.latency}ms</span>
+												<span className={`text-[12px] font-semibold font-mono ${timedOut ? "text-red-400" : "text-content-primary"}`}>
+													{timedOut ? "超时" : `${m.latency}ms`}
+												</span>
 											</div>
 											<div className="w-full h-[3px] rounded-[2px] bg-edge-default overflow-hidden">
 												<div
 													style={{
-														width: `${health}%`,
+														width: `${barWidth}%`,
 														background: barColor,
-														boxShadow: `0 0 6px ${barColor}`,
+														boxShadow: timedOut ? "none" : `0 0 6px ${barColor}`,
 													}}
 													className="h-full rounded-[2px] transition-all"
 												/>

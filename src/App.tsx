@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import DashboardPage from "./pages/DashboardPage";
@@ -39,20 +39,21 @@ export default function App() {
   const [proxyRunning, setProxyRunning] = useState(false);
   const [proxyPort, setProxyPort] = useState(8899);
 
+  const fetchStatus = useCallback(async () => {
+    try {
+      const s = await invoke<ProxyStatus>("get_proxy_status");
+      setProxyRunning(s.running);
+      setProxyPort(s.port);
+    } catch {
+      // keep defaults when backend unavailable
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const s = await invoke<ProxyStatus>("get_proxy_status");
-        setProxyRunning(s.running);
-        setProxyPort(s.port);
-      } catch {
-        // keep defaults when backend unavailable
-      }
-    };
     fetchStatus();
     const interval = setInterval(fetchStatus, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStatus]);
 
   const ActivePage = PAGES[page] || DashboardPage;
 
@@ -76,7 +77,10 @@ export default function App() {
           port={proxyPort}
         />
         <main style={styles.main}>
-          <ActivePage goTo={(p) => setPage(p as PageId)} />
+          <ActivePage
+            goTo={(p) => setPage(p as PageId)}
+            {...(page === "dashboard" ? { onProxyToggle: fetchStatus } : {})}
+          />
         </main>
       </div>
     </div>

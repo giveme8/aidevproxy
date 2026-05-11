@@ -30,13 +30,13 @@ interface Mirror {
 /* ── helpers ──────────────────────────────────────────── */
 
 const latencyTextClass = (ms: number): string =>
-  ms === 0 ? "text-red" : ms < 50 ? "text-green-bright" : ms < 100 ? "text-yellow" : "text-red";
+  ms === 0 ? "text-red" : ms < 300 ? "text-green-bright" : ms < 800 ? "text-yellow" : "text-red";
 
 const latencyBgClass = (ms: number): string =>
-  ms === 0 ? "bg-red" : ms < 50 ? "bg-green-bright" : ms < 100 ? "bg-yellow" : "bg-red";
+  ms === 0 ? "bg-red" : ms < 300 ? "bg-green-bright" : ms < 800 ? "bg-yellow" : "bg-red";
 
 const latencyPct = (ms: number): string =>
-  ms === 0 ? "100" : String(Math.min(100, (ms / 250) * 100));
+  ms === 0 ? "100" : String(Math.min(100, (ms / 3000) * 100));
 
 const TABS = [
   { id: "pypi", label: "PyPI" },
@@ -225,37 +225,37 @@ export default function MirrorsPage() {
   const visibleMirrors = mirrors.filter(
     (m) => !m.ecosystem || m.ecosystem === activeTab,
   );
-  const healthyCount = visibleMirrors.filter((m) => m.healthy).length;
   const totalPages = Math.max(1, Math.ceil(visibleMirrors.length / PER_PAGE));
   const pageMirrors = visibleMirrors.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-  const displayMirror = selectedMirror && visibleMirrors.some((m) => m.id === selectedMirror.id)
-    ? selectedMirror
+
+  // Look up from the live mirrors array so the right panel stays in sync
+  // after toggles / refreshes (selectedMirror state may be stale).
+  const displayMirror = selectedMirror
+    ? visibleMirrors.find((m) => m.id === selectedMirror.id) ?? visibleMirrors[0]
     : visibleMirrors[0];
+
+  // Two-state health: 正常 (healthy) / 异常 (unhealthy, incl. timeout & unreachable).
+  const healthyCount = visibleMirrors.filter((m) => m.healthy).length;
+  const abnormalCount = visibleMirrors.filter((m) => !m.healthy).length;
 
   const statusDist = visibleMirrors.length > 0
     ? [
       { value: (healthyCount / visibleMirrors.length) * 100, color: "#4ade80" },
-      { value: (visibleMirrors.filter((m) => m.healthy && m.latency >= 50).length / visibleMirrors.length) * 100, color: "#facc15" },
-      { value: (visibleMirrors.filter((m) => !m.healthy && m.latency > 0).length / visibleMirrors.length) * 100, color: "#fb923c" },
-      { value: (visibleMirrors.filter((m) => m.latency === 0).length / visibleMirrors.length) * 100, color: "#ef4444" },
+      { value: (abnormalCount / visibleMirrors.length) * 100, color: "#ef4444" },
     ]
     : [{ value: 100, color: "#94a3b8" }];
 
   const DONUT_STATUS_LEGEND = [
-    { label: "健康", pct: visibleMirrors.length > 0 ? `${Math.round((healthyCount / visibleMirrors.length) * 100)}%` : "0%", colorClass: "bg-green-bright" },
-    { label: "较慢", pct: visibleMirrors.length > 0 ? `${Math.round((visibleMirrors.filter((m) => m.healthy && m.latency >= 50).length / visibleMirrors.length) * 100)}%` : "0%", colorClass: "bg-yellow" },
-    { label: "较差", pct: visibleMirrors.length > 0 ? `${Math.round((visibleMirrors.filter((m) => !m.healthy && m.latency > 0).length / visibleMirrors.length) * 100)}%` : "0%", colorClass: "bg-orange" },
-    { label: "不可用", pct: visibleMirrors.length > 0 ? `${Math.round((visibleMirrors.filter((m) => m.latency === 0).length / visibleMirrors.length) * 100)}%` : "0%", colorClass: "bg-red" },
+    { label: "正常", pct: visibleMirrors.length > 0 ? `${Math.round((healthyCount / visibleMirrors.length) * 100)}%` : "0%", colorClass: "bg-green-bright" },
+    { label: "异常", pct: visibleMirrors.length > 0 ? `${Math.round((abnormalCount / visibleMirrors.length) * 100)}%` : "0%", colorClass: "bg-red" },
   ];
 
   // Snapshot of current latencies per visible mirror — not a time series,
   // labeled accordingly below.
-  const latencySnapshot = visibleMirrors
-    .filter((m) => m.latency > 0)
-    .map((m) => m.latency);
-  const latencySnapshotLabels = visibleMirrors
-    .filter((m) => m.latency > 0)
-    .map((m) => m.name);
+  // Only healthy mirrors contribute to the latency chart / leaderboard.
+  const latencyMirrors = visibleMirrors.filter((m) => m.healthy && m.latency > 0);
+  const latencySnapshot = latencyMirrors.map((m) => m.latency);
+  const latencySnapshotLabels = latencyMirrors.map((m) => m.name);
 
   /* ── shared class strings ── */
   const thClass = "text-left py-[7px] px-3 text-xs font-semibold text-content-tertiary border-b border-edge-default whitespace-nowrap";
@@ -326,20 +326,30 @@ export default function MirrorsPage() {
                         </td>
                         <td className={`${tdClass} font-mono text-xs text-content-secondary max-w-[200px] truncate`}>{m.url}</td>
                         <td className={tdClass}>
-                          <div className="flex items-center gap-[6px]">
-                            <span className={`font-mono text-xs font-semibold min-w-9 ${latencyTextClass(m.latency)}`}>
-                              {m.latency === 0 ? "超时" : `${m.latency}ms`}
-                            </span>
-                            <div className="w-[50px] h-1 rounded-[2px] bg-[#1d2926] shrink-0">
-                              <div className={`h-1 rounded-[2px] ${latencyBgClass(m.latency)}`} style={{ width: `${Math.min(100, (m.latency || 250) / 250 * 100)}%` }} />
+                          {!m.enabled ? (
+                            <span className="text-xs text-content-tertiary">—</span>
+                          ) : !m.healthy ? (
+                            <span className="text-xs text-content-tertiary">—</span>
+                          ) : (
+                            <div className="flex items-center gap-[6px]">
+                              <span className={`font-mono text-xs font-semibold min-w-9 ${latencyTextClass(m.latency)}`}>
+                                {m.latency === 0 ? "超时" : `${m.latency}ms`}
+                              </span>
+                              <div className="w-[50px] h-1 rounded-[2px] bg-[#1d2926] shrink-0">
+                                <div className={`h-1 rounded-[2px] ${latencyBgClass(m.latency)}`} style={{ width: `${Math.min(100, ((m.latency || 0) / 3000) * 100)}%` }} />
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </td>
                         <td className={`${tdClass} font-sans`}>
-                          <span className="inline-flex items-center gap-1">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${m.healthy ? "bg-green-bright" : m.latency === 0 ? "bg-red" : "bg-orange"}`} />
-                            {m.health_text}
-                          </span>
+                          {!m.enabled ? (
+                            <span className="text-xs text-content-tertiary">—</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-[6px]">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${m.healthy ? "bg-green-bright shadow-[0_0_5px_#4ade80]" : "bg-red shadow-[0_0_5px_#ef4444]"}`} />
+                              <span className={m.healthy ? "text-green-bright" : "text-red"}>{m.healthy ? "正常" : "异常"}</span>
+                            </span>
+                          )}
                         </td>
                         <td className={tdClass}><Badge size="sm" color={m.priority <= 2 ? "green" : m.priority <= 5 ? "yellow" : "gray"}>{`#${m.priority}`}</Badge></td>
                         <td className={tdClass}>
@@ -364,7 +374,7 @@ export default function MirrorsPage() {
         <div className="grid grid-cols-2 gap-4">
           <Card title={`镜像延迟排行 (${activeTab.toUpperCase()})`}>
             <div className="flex flex-col gap-2">
-              {visibleMirrors.filter((m) => m.latency > 0).sort((a, b) => a.latency - b.latency).map((m, i) => (
+              {latencyMirrors.sort((a, b) => a.latency - b.latency).map((m, i) => (
                 <div key={m.id} className="flex items-center gap-[10px]">
                   <span className="text-xs font-mono font-semibold text-content-tertiary min-w-[14px]">{i + 1}</span>
                   <span className="text-xs text-content-primary flex-1 truncate">{m.name}</span>

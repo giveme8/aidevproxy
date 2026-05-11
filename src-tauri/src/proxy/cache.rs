@@ -26,9 +26,50 @@ impl PackageCache {
 
         std::fs::create_dir_all(&cache_dir).ok();
 
-        Self {
+        let cache = Self {
             cache_dir,
             index: RwLock::new(HashMap::new()),
+        };
+
+        // Rebuild index from existing cache files so they survive restarts.
+        cache.load_existing();
+
+        cache
+    }
+
+    /// Scan the cache directory and rebuild the in-memory index from
+    /// previously cached `.pkg` files. Called once on startup.
+    fn load_existing(&self) {
+        let dir = match std::fs::read_dir(&self.cache_dir) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+
+        let mut index = self.index.write();
+        for entry in dir.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(true, |e| e != "pkg") {
+                continue;
+            }
+            // Read the file and compute its full SHA-256 hash.
+            let data = match std::fs::read(&path) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let hash = Self::compute_hash(&data);
+            let file_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| format!("{}.pkg", &hash[..16]));
+
+            let pkg = CachedPackage {
+                hash,
+                original_url: String::new(), // URL not stored on disk; we retain the hash mapping
+                file_name,
+                size_bytes: data.len() as u64,
+                created_at: 0, // mtime could be used here, but 0 is fine for recovered entries
+            };
+            index.insert(pkg.hash.clone(), pkg);
         }
     }
 

@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use once_cell::sync::Lazy;
 
-pub(crate) static PROXY_SERVER: Lazy<Mutex<Option<ProxyServer>>> = Lazy::new(|| Mutex::new(None));
+pub static PROXY_SERVER: Lazy<Mutex<Option<ProxyServer>>> = Lazy::new(|| Mutex::new(None));
 pub(crate) static P2P_NETWORK: Lazy<Mutex<Option<Arc<P2PNetwork>>>> = Lazy::new(|| Mutex::new(None));
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -30,7 +30,7 @@ impl Default for ProxyConfig {
     }
 }
 
-static CONFIG: Lazy<Mutex<ProxyConfig>> = Lazy::new(|| Mutex::new(ProxyConfig::default()));
+pub static CONFIG: Lazy<Mutex<ProxyConfig>> = Lazy::new(|| Mutex::new(ProxyConfig::default()));
 
 #[tauri::command]
 pub async fn start_proxy() -> Result<String, String> {

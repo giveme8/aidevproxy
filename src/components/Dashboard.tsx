@@ -133,9 +133,21 @@ export function Dashboard() {
         // ignore
       }
     };
+    // Periodically persist cumulative stats so they survive restarts.
+    const flushStats = async () => {
+      try {
+        await invoke("flush_stats");
+      } catch (_e) {
+        // ignore
+      }
+    };
     fetchStats();
     const interval = setInterval(fetchStats, 3000);
-    return () => clearInterval(interval);
+    const flushInterval = setInterval(flushStats, 30000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(flushInterval);
+    };
   }, []);
 
   if (!stats) return null;
