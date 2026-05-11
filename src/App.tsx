@@ -1,132 +1,110 @@
-import { useState } from "react";
-import ProxyControl, { Dashboard } from "./components/Dashboard";
-import P2PStatus from "./components/P2PStatus";
-import Settings from "./components/Settings";
+import { useState, useEffect } from "react";
+import Header from "./components/Header";
+import Sidebar from "./components/Sidebar";
+import DashboardPage from "./pages/DashboardPage";
+import TrafficPage from "./pages/TrafficPage";
+import CachePage from "./pages/CachePage";
+import NodesPage from "./pages/NodesPage";
+import MirrorsPage from "./pages/MirrorsPage";
+import RulesPage from "./pages/RulesPage";
+import SettingsPage from "./pages/SettingsPage";
+import { invoke } from "./tauri-api";
 
-type Page = "dashboard" | "settings";
+type PageId = "dashboard" | "traffic" | "cache" | "nodes" | "mirrors" | "rules" | "settings";
 
-function App() {
-  const [page, setPage] = useState<Page>("dashboard");
+interface ProxyStatus {
+  running: boolean;
+  port: number;
+  config: {
+    enable_mirror: boolean;
+    enable_p2p: boolean;
+    enable_cache: boolean;
+    auto_start: boolean;
+  };
+}
+
+const PAGES: Record<PageId, React.FC<{ goTo?: (p: string) => void }>> = {
+  dashboard: DashboardPage,
+  traffic: TrafficPage,
+  cache: CachePage,
+  nodes: NodesPage,
+  mirrors: MirrorsPage,
+  rules: RulesPage,
+  settings: SettingsPage,
+};
+
+export default function App() {
+  const [page, setPage] = useState<PageId>("dashboard");
+  const [systemProxy, setSystemProxy] = useState(true);
+  const [proxyRunning, setProxyRunning] = useState(false);
+  const [proxyPort, setProxyPort] = useState(8899);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const s = await invoke<ProxyStatus>("get_proxy_status");
+        setProxyRunning(s.running);
+        setProxyPort(s.port);
+      } catch {
+        // keep defaults when backend unavailable
+      }
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const ActivePage = PAGES[page] || DashboardPage;
 
   return (
-    <div style={styles.container}>
-      <header style={styles.header}>
-        <div style={styles.brand}>
-          <span style={styles.logo}>⚡</span>
-          <h1 style={styles.title}>AIDevProxy</h1>
-        </div>
-        <nav style={styles.nav}>
-          <button
-            onClick={() => setPage("dashboard")}
-            style={{
-              ...styles.navBtn,
-              ...(page === "dashboard" ? styles.navBtnActive : {}),
-            }}
-          >
-            仪表盘
-          </button>
-          <button
-            onClick={() => setPage("settings")}
-            style={{
-              ...styles.navBtn,
-              ...(page === "settings" ? styles.navBtnActive : {}),
-            }}
-          >
-            设置
-          </button>
-        </nav>
-      </header>
-
-      <main style={styles.main}>
-        {page === "dashboard" ? (
-          <div>
-            <ProxyControl />
-            <Dashboard />
-            <P2PStatus />
-          </div>
-        ) : (
-          <Settings />
-        )}
-      </main>
-
-      <footer style={styles.footer}>
-        <span>AIDevProxy v0.1.0 - AI 开发环境加速代理</span>
-        <span style={styles.footerRight}>
-          本地代理 · 智能镜像 · P2P 加速
-        </span>
-      </footer>
+    <div style={styles.window}>
+      <Header
+        port={`127.0.0.1:${proxyPort}`}
+        running={proxyRunning}
+        hasNotification={page !== "traffic"}
+        onTerminal={() => {}}
+        onBell={() => {}}
+        onSettings={() => setPage("settings")}
+      />
+      <div style={styles.body}>
+        <Sidebar
+          active={page}
+          onChange={(p) => setPage(p as PageId)}
+          systemProxy={systemProxy}
+          setSystemProxy={setSystemProxy}
+          running={proxyRunning}
+          port={proxyPort}
+        />
+        <main style={styles.main}>
+          <ActivePage goTo={(p) => setPage(p as PageId)} />
+        </main>
+      </div>
     </div>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: {
+  window: {
+    width: "100vw",
+    height: "100vh",
+    background: "var(--bg-canvas, #0f1614)",
     display: "flex",
     flexDirection: "column",
-    height: "100vh",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    background: "#0f1117",
-    color: "#e4e6eb",
+    overflow: "hidden",
+    fontFamily: "'Plus Jakarta Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+    color: "var(--text-primary, #e8f5ef)",
   },
-  header: {
+  body: {
+    flex: 1,
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "12px 24px",
-    borderBottom: "1px solid #2a2d35",
-    background: "#16181d",
-  },
-  brand: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  },
-  logo: {
-    fontSize: "28px",
-  },
-  title: {
-    fontSize: "18px",
-    fontWeight: 700,
-    margin: 0,
-    color: "#fff",
-  },
-  nav: {
-    display: "flex",
-    gap: "8px",
-  },
-  navBtn: {
-    padding: "6px 16px",
-    borderRadius: "6px",
-    border: "1px solid #2a2d35",
-    background: "transparent",
-    color: "#9ba1b0",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: 500,
-  },
-  navBtnActive: {
-    background: "#1a6ff5",
-    color: "#fff",
-    borderColor: "#1a6ff5",
+    minHeight: 0,
   },
   main: {
     flex: 1,
-    padding: "20px 24px",
-    overflowY: "auto",
-  },
-  footer: {
+    minWidth: 0,
+    minHeight: 0,
+    overflow: "hidden",
     display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "8px 24px",
-    borderTop: "1px solid #2a2d35",
-    fontSize: "11px",
-    color: "#555",
-    background: "#16181d",
-  },
-  footerRight: {
-    color: "#444",
+    flexDirection: "column",
   },
 };
-
-export default App;

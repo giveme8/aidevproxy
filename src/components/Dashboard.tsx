@@ -47,8 +47,8 @@ export default function ProxyControl() {
     try {
       const s = await invoke<ProxyStatus>("get_proxy_status");
       setStatus(s);
-    } catch (e) {
-      console.error("Failed to get proxy status:", e);
+    } catch (_e) {
+      // fallback silently on fetch failure
     }
   };
 
@@ -67,8 +67,8 @@ export default function ProxyControl() {
         await invoke("start_proxy");
       }
       await fetchStatus();
-    } catch (e) {
-      console.error(e);
+    } catch (_e) {
+      console.error(_e);
     }
     setLoading(false);
   };
@@ -129,7 +129,7 @@ export function Dashboard() {
       try {
         const s = await invoke<ProxyStats>("get_stats");
         setStats(s);
-      } catch (e) {
+      } catch (_e) {
         // ignore
       }
     };

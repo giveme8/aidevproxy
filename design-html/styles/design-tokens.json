@@ -1,0 +1,68 @@
+{
+  "colors": {
+    "bg": {
+      "primary": "#0f1117",
+      "secondary": "#16181d",
+      "card": "#1a1d25",
+      "hover": "#22252f"
+    },
+    "text": {
+      "primary": "#ffffff",
+      "secondary": "#e4e6eb",
+      "tertiary": "#9ba1b0",
+      "muted": "#555555"
+    },
+    "accent": {
+      "primary": "#1a6ff5",
+      "primaryHover": "#1558cc",
+      "success": "#22c55e",
+      "warning": "#f59e0b",
+      "error": "#ef4444"
+    },
+    "border": {
+      "default": "#2a2d35",
+      "subtle": "#1e2030"
+    }
+  },
+  "spacing": {
+    "xs": "4px",
+    "sm": "8px",
+    "md": "12px",
+    "lg": "16px",
+    "xl": "20px",
+    "2xl": "24px",
+    "3xl": "32px",
+    "4xl": "48px"
+  },
+  "radii": {
+    "sm": "4px",
+    "md": "6px",
+    "lg": "8px",
+    "xl": "12px",
+    "full": "9999px"
+  },
+  "shadows": {
+    "sm": "0 1px 2px rgba(0,0,0,0.3)",
+    "md": "0 4px 12px rgba(0,0,0,0.4)",
+    "lg": "0 8px 24px rgba(0,0,0,0.5)",
+    "glow": "0 0 20px rgba(26,111,245,0.15)"
+  },
+  "typography": {
+    "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    "sizes": {
+      "xs": "11px",
+      "sm": "13px",
+      "base": "14px",
+      "lg": "16px",
+      "xl": "18px",
+      "2xl": "24px",
+      "3xl": "28px"
+    },
+    "weights": {
+      "normal": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    }
+  }
+}

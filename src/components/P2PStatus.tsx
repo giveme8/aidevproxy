@@ -16,7 +16,7 @@ export default function P2PStatus() {
     try {
       const s = await invoke<P2PStatusData>("get_p2p_status");
       setStatus(s);
-    } catch (e) {
+    } catch (_e) {
       // P2P might not be active
     }
   };
@@ -36,8 +36,8 @@ export default function P2PStatus() {
         await invoke("start_p2p");
       }
       await fetchStatus();
-    } catch (e) {
-      console.error(e);
+    } catch (_e) {
+      console.error(_e);
     }
     setLoading(false);
   };

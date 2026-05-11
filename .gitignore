@@ -89,3 +89,17 @@ resource/
 *.tar.gz
 *.zip
 .cache/
+.gstack/
+
+
+.aidevproxy-data/
+src-tauri/.aidevproxy-data/
+
+# Local Claude Code prefs / MCP toggles
+.claude/settings.local.json
+
+# Playwright MCP auto-generated artifacts
+.playwright-mcp/
+
+# Per-run UI screenshots (golden-screenshots/ stays under version control)
+screenshots/after/
