@@ -1,6 +1,9 @@
 pub mod proxy;
 pub mod p2p;
 pub mod commands;
+pub mod commands_extra;
+pub mod db;
+pub mod health_check;
 
 use std::sync::Arc;
 use parking_lot::RwLock;
